@@ -1,0 +1,28 @@
+# write by zxcr9999
+import shodan
+
+# api here
+SHODAN_API_KEY = 'HH6BnZJ8jkRKT4b50ttaB5hbHKtuMYvD'
+
+api = shodan.Shodan(SHODAN_API_KEY)
+
+try:
+    with open('results.txt', 'w') as f:
+        # search query here
+        query = 'ARN02304U8'
+        page = 1
+        results = api.search(query, page=page)
+        total_results = results['total']
+        print('Total results:', total_results)
+
+        while (page - 1) * 100 < total_results:
+            results = api.search(query, page=page)
+            for result in results['matches']:
+                ip = result['ip_str']
+                port = str(result['port'])
+                f.write(ip + ':' + port + '\n')
+            page += 1
+            print('Processed', page * 100, 'results')
+
+except shodan.APIError as e:
+    print('Error: %s' % e)
