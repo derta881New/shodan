@@ -209,8 +209,8 @@ def save_to_file(host):
 
 def main():
     parser = argparse.ArgumentParser(description='Simple D-Link Device Scanner')
-    parser.add_argument('-t', '--threads', type=int, default=50, 
-                       help='Number of threads (default: 50)')
+    parser.add_argument('-t', '--threads', type=int, default=500, 
+                       help='Number of threads (default: 500)')
     parser.add_argument('-f', '--file', 
                        help='File with target IPs')
     parser.add_argument('--timeout', type=int, default=5, 
