@@ -793,7 +793,7 @@ def main():
     )
 
     parser.add_argument('-f', '--file', help='File containing target IPs/URLs')
-    parser.add_argument('-t', '--threads', type=int, default=100, help='Number of threads (default: 100)')
+    parser.add_argument('-t', '--threads', type=int, default=500, help='Number of threads (default: 500)')
     parser.add_argument('-o', '--output', help='Output file for vulnerable hosts')
     parser.add_argument('--timeout', type=int, default=8, help='Connection timeout (default: 8s)')
     parser.add_argument('--zmap', help='Use zmap to discover targets (e.g., 192.168.1.0/24)')
