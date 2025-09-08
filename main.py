@@ -412,77 +412,81 @@ def main():
             with open(args.file, 'r') as f:
                 raw_targets = [line.strip() for line in f if line.strip()]
                 targets = validate_and_filter_targets(raw_targets)
+            print(f"[+] Загружено {len(targets)} целей из файла: {args.file}")
         except FileNotFoundError:
-            print(f"[!] File '{args.file}' not found")
+            print(f"[!] Файл '{args.file}' не найден")
+            sys.exit(1)
+    elif os.path.exists('ip.txt'):
+        # Автоматический режим с ip.txt
+        try:
+            with open('ip.txt', 'r') as f:
+                raw_targets = [line.strip() for line in f if line.strip()]
+                targets = validate_and_filter_targets(raw_targets)
+            print(f"[+] Найден файл ip.txt - загружено {len(targets)} целей")
+        except Exception as e:
+            print(f"[!] Ошибка чтения ip.txt: {e}")
             sys.exit(1)
 
-        if not targets:
-            print("[!] No valid targets found")
-            sys.exit(1)
+    if not targets:
+        print("[!] Нет валидных целей для сканирования")
+        sys.exit(1)
 
-        print(f"[+] Starting D-Link scanner with {len(targets)} targets")
-        print(f"[+] Using {args.threads} threads, timeout: {args.timeout}s")
+    print(f"[+] Начинаем сканирование {len(targets)} целей")
+    print(f"[+] Используем {args.threads} потоков, таймаут: {args.timeout}s")
 
-        # Начинаем сканирование
-        start_time = time.time()
-        dlink_results = []
+    # Начинаем сканирование
+    start_time = time.time()
+    dlink_results = []
 
-        with ThreadPoolExecutor(max_workers=args.threads) as executor:
-            # Отправляем все задачи сканирования
-            futures = [executor.submit(scanner.scan_single_host, target.strip()) 
-                      for target in targets]
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        # Отправляем все задачи сканирования
+        futures = [executor.submit(scanner.scan_single_host, target.strip()) 
+                  for target in targets]
 
-            # Обрабатываем результаты с отображением прогресса
-            last_update = time.time()
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result:  # Если найдено D-Link устройство
-                        dlink_results.append(result)
+        # Обрабатываем результаты с отображением прогресса
+        last_update = time.time()
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result:  # Если найдено D-Link устройство
+                    dlink_results.append(result)
 
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
-                # Показываем прогресс каждую секунду
-                current_time = time.time()
-                if current_time - last_update >= 1.0:
-                    last_update = current_time
-                    data = stats.get_stats()
-                    print(f"\r📊 Прогресс: {data['processed_count']} сканировано | {data['vulnerable']} найдено | Скорость: {data['rate']:.1f}/сек", end="", flush=True)
+            # Показываем прогресс каждую секунду
+            current_time = time.time()
+            if current_time - last_update >= 1.0:
+                last_update = current_time
+                data = stats.get_stats()
+                print(f"\r📊 Прогресс: {data['processed_count']} сканировано | {data['vulnerable']} найдено | Скорость: {data['rate']:.1f}/сек", end="", flush=True)
 
-        # Финальные результаты
-        final_stats = stats.get_stats()
-        summary = file_manager.get_summary()
-        
-        print(f"\n[+] Сканирование завершено!")
-        print(f"[+] Всего сканировано: {final_stats['processed_count']}")
-        print(f"[+] D-Link устройств найдено: {final_stats['vulnerable']}")
-        print(f"[+] Время сканирования: {final_stats['elapsed']:.1f} секунд")
-        print(f"[+] Результаты сохранены в: {summary['session_folder']}/")
-        
-        # Показываем статистику по типам
-        print(f"\n[+] Статистика по типам устройств:")
-        for device_type, count in summary['by_type'].items():
-            if count > 0:
-                print(f"  - {device_type}: {count}")
-        
-        print(f"\n[+] Созданные файлы:")
-        print(f"  - all_dlink_devices.txt - все найденные IP")
-        for device_type, count in summary['by_type'].items():
-            if count > 0:
-                print(f"  - {device_type}.txt - IP {device_type}")
-                print(f"  - {device_type}_detailed.txt - детальная информация")
-
-        if dlink_results:
-            print(f"\n[+] Примеры найденных устройств:")
-            for result in dlink_results[:5]:  # Показываем первые 5
-                host = result['host']
-                device_type = result['type']
-                info = result.get('info', {})
-                model = info.get('model', 'Unknown')
-                print(f"  - {host} ({device_type}) - {model}")
-            if len(dlink_results) > 5:
-                print(f"  ... и еще {len(dlink_results) - 5}")
+    # Финальные результаты
+    final_stats = stats.get_stats()
+    summary = file_manager.get_summary()
+    
+    print(f"\n[+] Сканирование завершено!")
+    print(f"[+] Всего сканировано: {final_stats['processed_count']}")
+    print(f"[+] D-Link устройств найдено: {final_stats['vulnerable']}")
+    print(f"[+] Время сканирования: {final_stats['elapsed']:.1f} секунд")
+    print(f"[+] Результаты сохранены в: {summary['session_folder']}/")
+    
+    # Показываем статистику по типам
+    print(f"\n[+] Статистика по типам устройств:")
+    for device_type, count in summary['by_type'].items():
+        if count > 0:
+            print(f"  - {device_type}: {count}")
+    
+    if dlink_results:
+        print(f"\n[+] Примеры найденных устройств:")
+        for result in dlink_results[:5]:  # Показываем первые 5
+            host = result['host']
+            device_type = result['type']
+            info = result.get('info', {})
+            model = info.get('model', 'Unknown')
+            print(f"  - {host} ({device_type}) - {model}")
+        if len(dlink_results) > 5:
+            print(f"  ... и еще {len(dlink_results) - 5}")
     else:
         # Режим stdin - потоковое сканирование в реальном времени
         print("[+] D-Link сканер потокового режима - чтение из stdin")
