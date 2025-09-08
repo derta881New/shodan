@@ -145,7 +145,7 @@ class Statistics:
 class DLinkScanner:
     """Продвинутый сканер D-Link устройств с классификацией"""
 
-    def __init__(self, stats, file_manager, timeout=1):
+    def __init__(self, stats, file_manager, timeout=3):
         self.stats = stats
         self.file_manager = file_manager
         self.timeout = timeout
@@ -191,7 +191,14 @@ class DLinkScanner:
                         # Быстрая проверка наличия D-Link индикаторов
                         dlink_indicators = ['d-link', 'dir-', 'dap-', 'dcs-', 'dwr-', 'dgs-', 'des-', 'dhp-', 'dwa-', 'dph-', 'dsl-', 'dvg-', 'hnap', 'purenetworks.com']
                         
+                        # Исключаем корпоративные устройства (серверы, файрволы)
+                        corporate_indicators = ['server', 'firewall', 'enterprise', 'corporate', 'business', 'managed', 'controller', 'switch stack']
+                        
                         if any(indicator in combined_text for indicator in dlink_indicators):
+                            # Проверяем, не является ли это корпоративным устройством
+                            if any(corp_indicator in combined_text for corp_indicator in corporate_indicators):
+                                return False, None, None, None  # Пропускаем корпоративные устройства
+                            
                             # Извлекаем информацию об устройстве
                             device_info = self.extract_device_info(response.text, dict(response.headers))
                             return True, device_info, response.text, dict(response.headers)
@@ -354,14 +361,14 @@ def validate_and_filter_targets(targets):
 
 def main():
     parser = argparse.ArgumentParser(description='Продвинутый сканер D-Link устройств v3.0')
-    parser.add_argument('-t', '--threads', type=int, default=1000, 
-                       help='Количество потоков (по умолчанию: 1000)')
+    parser.add_argument('-t', '--threads', type=int, default=500, 
+                       help='Количество потоков (по умолчанию: 500)')
     parser.add_argument('-f', '--file', 
                        help='Файл с целевыми IP адресами')
     parser.add_argument('--timeout', type=int, default=3, 
                        help='Таймаут запроса в секундах (по умолчанию: 3)')
-    parser.add_argument('--max-threads', type=int, default=2000,
-                       help='Максимальное количество потоков (по умолчанию: 2000)')
+    parser.add_argument('--max-threads', type=int, default=1000,
+                       help='Максимальное количество потоков (по умолчанию: 1000)')
 
     args = parser.parse_args()
 
