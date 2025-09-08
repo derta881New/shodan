@@ -145,82 +145,56 @@ class Statistics:
 class DLinkScanner:
     """Продвинутый сканер D-Link устройств с классификацией"""
 
-    def __init__(self, stats, file_manager, timeout=3):
+    def __init__(self, stats, file_manager, timeout=1):
         self.stats = stats
         self.file_manager = file_manager
         self.timeout = timeout
         self.session = requests.Session()
         self.session.verify = False
-        # Оптимизация для большого количества соединений
+        # Агрессивная оптимизация для высокоскоростного сканирования
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=50,
-            pool_maxsize=50,
+            pool_connections=200,
+            pool_maxsize=200,
             max_retries=0
         )
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+            'User-Agent': 'D-LinkScanner/3.0',
             'Accept': '*/*',
-            'Connection': 'close'
+            'Connection': 'close',
+            'Accept-Encoding': 'gzip',
+            'Cache-Control': 'no-cache'
         })
 
     def detect_dlink(self, host):
-        """Улучшенное обнаружение D-Link устройств с деталями"""
+        """Быстрое обнаружение D-Link устройств (оптимизировано для скорости)"""
         try:
-            # Расширенные методы обнаружения
-            checks = [
-                # HNAP check - главный метод
-                {
-                    'url': f"http://{host}/HNAP1/",
-                    'method': 'GET',
-                    'headers': {'SOAPAction': '"http://purenetworks.com/HNAP1/GetDeviceSettings"'},
-                    'indicators': ['HNAP', 'D-Link', 'purenetworks.com', 'DeviceType'],
-                    'priority': 1
-                },
-                # Быстрая проверка главной страницы
-                {
-                    'url': f"http://{host}/",
-                    'method': 'GET',
-                    'headers': {},
-                    'indicators': ['D-Link', 'DIR-', 'DAP-', 'DCS-', 'DWR-', 'DGS-', 'DES-', 'DHP-', 'DWA-', 'DPH-', 'DSL-', 'DVG-'],
-                    'priority': 2
-                },
-                # Проверка страницы входа
-                {
-                    'url': f"http://{host}/login.php",
-                    'method': 'GET',
-                    'headers': {},
-                    'indicators': ['D-Link', 'Router', 'Access Point'],
-                    'priority': 3
-                },
-                # Дополнительные проверки
-                {
-                    'url': f"http://{host}/info.html",
-                    'method': 'GET',
-                    'headers': {},
-                    'indicators': ['D-Link', 'Model'],
-                    'priority': 4
-                }
+            # Быстрые проверки в порядке приоритета - останавливаемся на первом совпадении
+            quick_checks = [
+                # Главная страница - самый быстрый метод
+                f"http://{host}/",
+                # HNAP - надежный метод для D-Link
+                f"http://{host}/HNAP1/"
             ]
-
-            # Сортируем по приоритету
-            checks.sort(key=lambda x: x['priority'])
             
-            for check in checks:
+            for url in quick_checks:
                 try:
-                    response = self.session.get(check['url'], headers=check['headers'], timeout=self.timeout)
+                    headers = {'SOAPAction': '"http://purenetworks.com/HNAP1/GetDeviceSettings"'} if 'HNAP1' in url else {}
+                    response = self.session.get(url, headers=headers, timeout=self.timeout)
                     
                     if response.status_code == 200:
-                        response_text = response.text
-                        headers_dict = dict(response.headers)
-                        combined_text = response_text.lower() + ' ' + ' '.join([f"{k}: {v}" for k, v in headers_dict.items()]).lower()
+                        response_text = response.text.lower()
+                        headers_text = ' '.join([f"{k}: {v}" for k, v in response.headers.items()]).lower()
+                        combined_text = response_text + ' ' + headers_text
 
-                        for indicator in check['indicators']:
-                            if indicator.lower() in combined_text:
-                                # Извлекаем информацию об устройстве
-                                device_info = self.extract_device_info(response_text, headers_dict)
-                                return True, device_info, response_text, headers_dict
+                        # Быстрая проверка наличия D-Link индикаторов
+                        dlink_indicators = ['d-link', 'dir-', 'dap-', 'dcs-', 'dwr-', 'dgs-', 'des-', 'dhp-', 'dwa-', 'dph-', 'dsl-', 'dvg-', 'hnap', 'purenetworks.com']
+                        
+                        if any(indicator in combined_text for indicator in dlink_indicators):
+                            # Извлекаем информацию об устройстве
+                            device_info = self.extract_device_info(response.text, dict(response.headers))
+                            return True, device_info, response.text, dict(response.headers)
 
                 except Exception:
                     continue
@@ -380,14 +354,14 @@ def validate_and_filter_targets(targets):
 
 def main():
     parser = argparse.ArgumentParser(description='Продвинутый сканер D-Link устройств v3.0')
-    parser.add_argument('-t', '--threads', type=int, default=300, 
-                       help='Количество потоков (по умолчанию: 300)')
+    parser.add_argument('-t', '--threads', type=int, default=1000, 
+                       help='Количество потоков (по умолчанию: 1000)')
     parser.add_argument('-f', '--file', 
                        help='Файл с целевыми IP адресами')
-    parser.add_argument('--timeout', type=int, default=3, 
-                       help='Таймаут запроса в секундах (по умолчанию: 3)')
-    parser.add_argument('--max-threads', type=int, default=500,
-                       help='Максимальное количество потоков (по умолчанию: 500)')
+    parser.add_argument('--timeout', type=int, default=1, 
+                       help='Таймаут запроса в секундах (по умолчанию: 1)')
+    parser.add_argument('--max-threads', type=int, default=2000,
+                       help='Максимальное количество потоков (по умолчанию: 2000)')
 
     args = parser.parse_args()
 
@@ -506,27 +480,43 @@ def main():
 
         with ThreadPoolExecutor(max_workers=args.threads) as executor:
             active_futures = []
+            batch_buffer = []
+            batch_size = 100  # Обрабатываем пакетами по 100 IP
+            max_queue_size = args.threads * 3  # Ограничиваем размер очереди
 
             try:
                 for line in sys.stdin:
                     target = line.strip()
                     if target and is_valid_target(target):
-                        # Отправляем задачу сканирования
-                        future = executor.submit(scanner.scan_single_host, target)
-                        active_futures.append(future)
+                        batch_buffer.append(target)
+                        
+                        # Обрабатываем пакетом или когда очередь заполнена
+                        if len(batch_buffer) >= batch_size or len(active_futures) < max_queue_size:
+                            # Отправляем все IP из буфера
+                            for ip in batch_buffer:
+                                if len(active_futures) < max_queue_size:
+                                    future = executor.submit(scanner.scan_single_host, ip)
+                                    active_futures.append(future)
+                            batch_buffer.clear()
 
-                        # Очищаем завершенные futures
-                        completed = [f for f in active_futures if f.done()]
-                        for f in completed:
-                            try:
-                                result = f.result()
-                                if result:  # Найдено D-Link устройство
-                                    dlink_results.append(result)
-                            except:
-                                pass
-
-                        # Оставляем только активные futures
-                        active_futures = [f for f in active_futures if not f.done()]
+                        # Очищаем завершенные futures (более эффективно)
+                        if len(active_futures) > max_queue_size * 0.8:
+                            completed_results = []
+                            remaining_futures = []
+                            
+                            for f in active_futures:
+                                if f.done():
+                                    try:
+                                        result = f.result()
+                                        if result:  # Найдено D-Link устройство
+                                            completed_results.append(result)
+                                    except:
+                                        pass
+                                else:
+                                    remaining_futures.append(f)
+                            
+                            dlink_results.extend(completed_results)
+                            active_futures = remaining_futures
 
                         # Показываем прогресс каждую секунду
                         current_time = time.time()
@@ -535,13 +525,18 @@ def main():
                             data = stats.get_stats()
                             print(f"\r📊 Прогресс: {data['processed_count']} сканировано | {data['vulnerable']} найдено | Скорость: {data['rate']:.1f}/сек | Активных: {len(active_futures)}", end="", flush=True)
 
+                # Обрабатываем остатки в буфере
+                for ip in batch_buffer:
+                    future = executor.submit(scanner.scan_single_host, ip)
+                    active_futures.append(future)
+
             except KeyboardInterrupt:
                 print("\n[!] Остановка сканера...")
 
             # Ждем завершения оставшихся задач
             for f in active_futures:
                 try:
-                    result = f.result(timeout=1)
+                    result = f.result(timeout=2)
                     if result:
                         dlink_results.append(result)
                 except:
