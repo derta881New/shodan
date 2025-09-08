@@ -358,8 +358,8 @@ def main():
                        help='Количество потоков (по умолчанию: 1000)')
     parser.add_argument('-f', '--file', 
                        help='Файл с целевыми IP адресами')
-    parser.add_argument('--timeout', type=int, default=1, 
-                       help='Таймаут запроса в секундах (по умолчанию: 1)')
+    parser.add_argument('--timeout', type=int, default=3, 
+                       help='Таймаут запроса в секундах (по умолчанию: 3)')
     parser.add_argument('--max-threads', type=int, default=2000,
                        help='Максимальное количество потоков (по умолчанию: 2000)')
 
